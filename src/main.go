@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"strings"
 
 	"github.com/alexflint/go-arg"
 )
@@ -14,8 +15,18 @@ var rootPath string
 
 var mapFiles []*MapFile
 var mapInfos []*MapInfo
+var mapConnections []*MapConnection
 var monGens []*MonGen
 var monItems []*MonItem
+
+const (
+	SourceMaskUnknown       uint = 0x00
+	SourceMaskMapFile       uint = 0x01 << 0
+	SourceMaskMapInfo       uint = 0x01 << 1
+	SourceMaskMapConnection uint = 0x01 << 2
+	SourceMaskMonGen        uint = 0x01 << 3
+	SourceMaskMonItem       uint = 0x01 << 4
+)
 
 func main() {
 	arg.MustParse(&args)
@@ -30,86 +41,146 @@ func main() {
 
 	mapFiles = ReadMapFiles()
 	mapInfos = ReadMapInfos()
+	mapConnections = ReadMapConnections()
 	monGens = ReadMonGens()
 	monItems = ReadMonItems()
 
-	validateMaps()
-	validateMapInfo()
-	validateMonGen()
+	checkForUnusedMapFiles()
+	checkForMissingMapFiles()
+	checkForIdleMapFiles()
+	checkForMissingMonItems()
+	checkForUnusedMonItems()
 }
 
-func validateMaps() {
-	// Check if all map files are used in the MapInfo
+func checkForUnusedMapFiles() {
 	log.Print("[Unused map files]")
+
+	mapIDs := make(map[*MapFile]uint)
+
 	for _, mapFile := range mapFiles {
 		if !Contains(mapInfos, func(mapInfo *MapInfo) bool {
 			return mapFile.MapID == mapInfo.MapID
 		}) {
-			log.Printf("mapfile[%s]", mapFile.MapID)
+			mapIDs[mapFile] |= SourceMaskMapInfo
 		}
 	}
 
-	// Check if all the maps listed in MapInfo have corresponding map files
+	for _, mapFile := range mapFiles {
+		if !Contains(mapConnections, func(mapConnection *MapConnection) bool {
+			return mapFile.MapID == mapConnection.FromMapID || mapFile.MapID == mapConnection.ToMapID
+		}) {
+			mapIDs[mapFile] |= SourceMaskMapConnection
+		}
+	}
+
+	for _, mapFile := range mapFiles {
+		if !Contains(monGens, func(monGen *MonGen) bool {
+			return mapFile.MapID == monGen.MapID
+		}) {
+			mapIDs[mapFile] |= SourceMaskMonGen
+		}
+	}
+
+	for mapFile, usage := range mapIDs {
+		files := make([]string, 0)
+		if usage&SourceMaskMapInfo != 0x0 {
+			files = append(files, "MapInfo")
+		}
+		if usage&SourceMaskMapConnection != 0x0 {
+			files = append(files, "MapConnection")
+		}
+		if usage&SourceMaskMonGen != 0x0 {
+			files = append(files, "MonGen")
+		}
+
+		log.Printf("mapfile[%s] is not used by [%s]", mapFile.MapID, strings.Join(files, "|"))
+	}
+}
+
+func checkForMissingMapFiles() {
 	log.Print("[Missing map files]")
+
+	mapIDs := make(map[string]uint)
+
 	for _, mapInfo := range mapInfos {
 		if !Contains(mapFiles, func(mapFile *MapFile) bool {
 			return mapFile.MapID == mapInfo.MapID
 		}) {
-			log.Printf("mapinfo[%s]", mapInfo.MapID)
+			mapIDs[mapInfo.MapID] |= SourceMaskMonGen
 		}
 	}
-}
 
-func validateMapInfo() {
-	// Check if the MapInfo has no MonGen
-	log.Print("[Missing MonGen]")
-	for _, mapInfo := range mapInfos {
-		if !Contains(monGens, func(monGen *MonGen) bool {
-			return mapInfo.MapID == monGen.MapID
+	for _, mapConnection := range mapConnections {
+		if !Contains(mapFiles, func(mapFile *MapFile) bool {
+			return mapConnection.FromMapID == mapFile.MapID
 		}) {
-			log.Printf("mapinfo[%s]", mapInfo.MapID)
+			mapIDs[mapConnection.FromMapID] |= SourceMaskMapConnection
 		}
 	}
-}
-
-func validateMonGen() {
-	// Check if all the items listed in MonGen have corresponding MapInfo
-	log.Print("[Missing MapInfo]")
-	for _, monGen := range monGens {
-		if !Contains(mapInfos, func(mapInfo *MapInfo) bool {
-			return monGen.MapID == mapInfo.MapID
+	for _, mapConnection := range mapConnections {
+		if !Contains(mapFiles, func(mapFile *MapFile) bool {
+			return mapConnection.ToMapID == mapFile.MapID
 		}) {
-			log.Printf("mongen[%s]", monGen.MapID)
+			mapIDs[mapConnection.ToMapID] |= SourceMaskMapConnection
 		}
 	}
 
-	// Check if all the items listed in MonGen have corresponding map file
-	log.Print("[Missing map file]")
 	for _, monGen := range monGens {
 		if !Contains(mapFiles, func(mapFile *MapFile) bool {
 			return monGen.MapID == mapFile.MapID
 		}) {
-			log.Printf("mongen[%s]", monGen.MapID)
+			mapIDs[monGen.MapID] |= SourceMaskMonGen
 		}
 	}
 
-	// Check if the MonGen has no MonItem
-	log.Print("[Missing MonItem]")
+	for mapID, usage := range mapIDs {
+		files := make([]string, 0)
+		if usage&SourceMaskMapInfo != 0x0 {
+			files = append(files, "MapInfo")
+		}
+		if usage&SourceMaskMapConnection != 0x0 {
+			files = append(files, "MapConnection")
+		}
+		if usage&SourceMaskMonGen != 0x0 {
+			files = append(files, "MonGen")
+		}
+
+		log.Printf("mapfile[%s] is expected by [%s]", mapID, strings.Join(files, "|"))
+	}
+}
+
+func checkForIdleMapFiles() {
+	log.Print("[Idle map files]")
+
+	for _, mapFile := range mapFiles {
+		if !Contains(monGens, func(monGen *MonGen) bool {
+			return mapFile.MapID == monGen.MapID
+		}) {
+			log.Printf("mapfile[%s] is idle", mapFile.MapID)
+		}
+	}
+}
+
+func checkForMissingMonItems() {
+	log.Print("[Missing mon items]")
+
 	for _, monGen := range monGens {
 		if !Contains(monItems, func(monItem *MonItem) bool {
 			return monGen.MonName == monItem.MonName
 		}) {
-			log.Printf("mongen[%s]", monGen.MonName)
+			log.Printf("monitem[%s] is expected by [MonGen]", monGen.MonName)
 		}
 	}
+}
 
-	// Check if all the MonItem have corresponding MonGen
-	log.Print("[Missing MonGen]")
+func checkForUnusedMonItems() {
+	log.Print("[Unused mon items]")
+
 	for _, monItem := range monItems {
 		if !Contains(monGens, func(monGen *MonGen) bool {
 			return monItem.MonName == monGen.MonName
 		}) {
-			log.Printf("monitem[%s]", monItem.MonName)
+			log.Printf("monitem[%s] is not used", monItem.MonName)
 		}
 	}
 }

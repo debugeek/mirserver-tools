@@ -23,6 +23,11 @@ type MapInfo struct {
 	MapName string `json:"map_name"`
 }
 
+type MapConnection struct {
+	FromMapID string `json:"from_map_id"`
+	ToMapID   string `json:"to_map_id"`
+}
+
 func ReadMapFiles() []*MapFile {
 	mapFiles := make([]*MapFile, 0)
 
@@ -35,7 +40,13 @@ func ReadMapFiles() []*MapFile {
 
 	for _, e := range entries {
 		filename := e.Name()
-		id := strings.TrimSuffix(filename, filepath.Ext(filename))
+		ext := filepath.Ext(filename)
+		id := strings.TrimSuffix(filename, ext)
+
+		if ext != ".map" {
+			continue
+		}
+
 		mapFiles = append(mapFiles, &MapFile{
 			MapID:       id,
 			MapFilename: filename,
@@ -84,4 +95,45 @@ func ReadMapInfos() []*MapInfo {
 	}
 
 	return mapInfos
+}
+
+func ReadMapConnections() []*MapConnection {
+	mapConnections := make([]*MapConnection, 0)
+
+	file, err := os.Open(fmt.Sprintf("%s/Mir200/Envir/MapInfo.txt", rootPath))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	reader := transform.NewReader(file, enc.NewDecoder())
+	scanner := bufio.NewScanner(reader)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if strings.HasPrefix(line, ";") || len(line) == 0 {
+			continue
+		}
+
+		components := strings.Split(line, "->")
+		if len(components) != 2 {
+			continue
+		}
+
+		from := strings.Fields(components[0])
+		if len(from) != 3 {
+			continue
+		}
+		to := strings.Fields(components[1])
+		if len(to) != 3 {
+			continue
+		}
+
+		mapConnections = append(mapConnections, &MapConnection{
+			FromMapID: from[0],
+			ToMapID:   to[0],
+		})
+	}
+
+	return mapConnections
 }

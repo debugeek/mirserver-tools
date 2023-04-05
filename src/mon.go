@@ -42,7 +42,7 @@ func ReadMonGens() []*MonGen {
 		}
 
 		components := strings.Fields(line)
-		if len(components) != 7 {
+		if len(components) < 7 {
 			continue
 		}
 
@@ -64,10 +64,17 @@ func ReadMonItems() []*MonItem {
 	}
 
 	for _, e := range entries {
+
 		filename := e.Name()
-		name := strings.TrimSuffix(filename, filepath.Ext(filename))
+		ext := filepath.Ext(filename)
+		monName := strings.TrimSuffix(filename, ext)
+
+		if ext != ".txt" {
+			continue
+		}
+
 		monItem = append(monItem, &MonItem{
-			MonName: name,
+			MonName: monName,
 		})
 	}
 
