@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os"
 	"strings"
 
 	"github.com/alexflint/go-arg"
@@ -94,6 +95,10 @@ func checkForUnusedMapFiles() {
 		}
 
 		log.Printf("mapfile[%s] is not used by [%s]", mapFile.MapID, strings.Join(files, "|"))
+
+		if usage == SourceMaskMapInfo|SourceMaskMapConnection|SourceMaskMonGen {
+			os.Remove(mapFile.MapFilePath)
+		}
 	}
 }
 
